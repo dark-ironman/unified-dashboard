@@ -1,0 +1,33 @@
+{
+  "Timestamp": "2026-01-01T00:00:00Z",
+  "BreakGlassAccounts": [
+    {
+      "userPrincipalName": "breakglass@contoso.com",
+      "accountEnabled": true,
+      "signInActivity": {
+        "lastSignInDateTime": "2026-01-01T12:00:00Z"
+      }
+    }
+  ],
+  "AdminRoles": [
+    {
+      "displayName": "Global Administrator",
+      "id": "role-id-123"
+    }
+  ],
+  "MFAStatus": [
+    {
+      "userPrincipalName": "user@contoso.com",
+      "isMfaCapable": true,
+      "isMfaRegistered": true
+    }
+  ],
+  "RiskyUsers": [],
+  "RiskySignIns": [],
+  "ConditionalAccess": [
+    {
+      "id": "policy-id-123",
+      "displayName": "Require MFA for Admins"
+    }
+  ]
+}
