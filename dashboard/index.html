@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tenant Health Dashboard</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+
+<style>
+  body {
+    background-color: #121212;
+    color: #e0e0e0;
+  }
+  .card {
+    background-color: #1e1e1e;
+    border: 1px solid #333;
+    margin-bottom: 20px;
+  }
+  .card-header {
+    background-color: #272727;
+    color: #fff;
+    font-weight: bold;
+  }
+  .alert-danger {
+    background-color: #4a0000;
+    color: #ffb3b3;
+    border-color: #660000;
+  }
+  .alert-success {
+    background-color: #003300;
+    color: #b3ffb3;
+    border-color: #006600;
+  }
+  .score-high {
+    color: #ff6b6b;
+    font-weight: bold;
+  }
+  .score-ok {
+    color: #6bff8f;
+    font-weight: bold;
+  }
+</style>
+</head>
+
+<body class="container py-4">
+
+<h1 class="mb-4">Tenant Health Dashboard</h1>
+
+<div id="alerts" class="mb-4"></div>
+
+<div class="row">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">Identity Overview</div>
+      <div class="card-body" id="identity-section"></div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">Device Overview</div>
+      <div class="card-body" id="device-section"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function loadData() {
+  const identity = await fetch('identity.json').then(r => r.json());
+  const devices = await fetch('devices.json').then(r => r.json());
+
+  renderIdentity(identity);
+  renderDevices(devices);
+  renderAlerts(identity, devices);
+}
+
+function renderIdentity(identity) {
+  const html = `
+    <p><strong>Risky Users:</strong> ${identity.RiskyUsers.length}</p>
+    <p><strong>Risky Sign-ins:</strong> ${identity.RiskySignIns.length}</p>
+    <p><strong>Break-glass Accounts:</strong> ${identity.BreakGlassAccounts.length}</p>
+    <p><strong>Conditional Access Policies:</strong> ${identity.ConditionalAccess.length}</p>
+  `;
+  document.getElementById('identity-section').innerHTML = html;
+}
+
+function renderDevices(devices) {
+  const exposure = devices.ExposureScore?.exposureScore ?? 0;
+  const secure = devices.SecureScore?.secureScore ?? 0;
+
+  const exposureClass = exposure > 50 ? "score-high" : "score-ok";
+
+  const html = `
+    <p><strong>Exposure Score:</strong> <span class="${exposureClass}">${exposure}</span></p>
+    <p><strong>Secure Score:</strong> ${secure}</p>
+    <p><strong>Total Devices:</strong> ${devices.Devices.length}</p>
+    <p><strong>High Vulnerabilities:</strong> ${devices.Vulnerabilities.filter(v => v.severity === "High").length}</p>
+  `;
+  document.getElementById('device-section').innerHTML = html;
+}
+
+function renderAlerts(identity, devices) {
+  const alerts = [];
+
+  if (identity.RiskyUsers.length > 0)
+    alerts.push(`⚠️ Risky users detected: ${identity.RiskyUsers.length}`);
+
+  if (identity.RiskySignIns.length > 0)
+    alerts.push(`⚠️ Risky sign-ins detected: ${identity.RiskySignIns.length}`);
+
+  identity.BreakGlassAccounts.forEach(acct => {
+    if (acct.signInActivity?.lastSignInDateTime)
+      alerts.push(`🚨 Break-glass sign-in: ${acct.userPrincipalName}`);
+  });
+
+  const exposure = devices.ExposureScore?.exposureScore ?? 0;
+  if (exposure > 50)
+    alerts.push(`🚨 High exposure score: ${exposure}`);
+
+  const offline = devices.Devices.filter(d => new Date(d.lastSeen) < new Date(Date.now() - 7*24*60*60*1000));
+  if (offline.length > 0)
+    alerts.push(`⚠️ Devices offline 7+ days: ${offline.length}`);
+
+  const vulns = devices.Vulnerabilities.filter(v => v.severity === "High");
+  if (vulns.length > 0)
+    alerts.push(`🚨 High severity vulnerabilities: ${vulns.length}`);
+
+  const html = alerts.length === 0
+    ? `<div class="alert alert-success">No alerts detected.</div>`
+    : `<div class="alert alert-danger"><strong>Alerts:</strong><br>${alerts.join("<br>")}</div>`;
+
+  document.getElementById('alerts').innerHTML = html;
+}
+
+loadData();
+</script>
+
+</body>
+</html>
