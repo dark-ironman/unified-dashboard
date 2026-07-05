@@ -1,0 +1,23 @@
+{
+  "Timestamp": "2026-01-01T00:00:00Z",
+  "ExposureScore": {
+    "exposureScore": 42
+  },
+  "SecureScore": {
+    "secureScore": 78
+  },
+  "Devices": [
+    {
+      "id": "device-123",
+      "computerDnsName": "PC01",
+      "lastSeen": "2026-01-01T10:00:00Z"
+    }
+  ],
+  "Vulnerabilities": [
+    {
+      "id": "vuln-123",
+      "severity": "High",
+      "softwareName": "ExampleApp"
+    }
+  ]
+}
