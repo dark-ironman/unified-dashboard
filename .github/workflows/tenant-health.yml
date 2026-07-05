@@ -1,0 +1,129 @@
+name: Tenant Health Monitor
+
+on:
+  schedule:
+    - cron: "0 */4 * * *"   # Every 4 hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GRAPH_BASE_URL: https://graph.microsoft.com
+  DEFENDER_BASE_URL: https://api.security.microsoft.com
+  AUTHORITY_URL: https://login.microsoftonline.com
+
+jobs:
+  health-check:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Install PowerShell modules
+      shell: pwsh
+      run: |
+        Install-Module Microsoft.Graph -Force -Scope CurrentUser
+        Install-Module PSWriteJSON -Force -Scope CurrentUser
+
+    - name: Run Identity Health Check
+      id: identity
+      shell: pwsh
+      run: |
+        $result = ./scripts/Get-IdentityHealth.ps1 `
+          -TenantId "${{ secrets.TENANT_ID }}" `
+          -ClientId "${{ secrets.CLIENT_ID }}" `
+          -ClientSecret "${{ secrets.CLIENT_SECRET }}" `
+          -GraphBaseUrl "${{ env.GRAPH_BASE_URL }}"
+
+        $result | Out-File identity.json
+        echo "identity=$(Get-Content identity.json -Raw)" >> $env:GITHUB_OUTPUT
+
+    - name: Run Device Health Check
+      id: devices
+      shell: pwsh
+      run: |
+        $result = ./scripts/Get-DeviceHealth.ps1 `
+          -TenantId "${{ secrets.TENANT_ID }}" `
+          -ClientId "${{ secrets.CLIENT_ID }}" `
+          -ClientSecret "${{ secrets.CLIENT_SECRET }}" `
+          -DefenderBaseUrl "${{ env.DEFENDER_BASE_URL }}"
+
+        $result | Out-File devices.json
+        echo "devices=$(Get-Content devices.json -Raw)" >> $env:GITHUB_OUTPUT
+
+    - name: Evaluate Health Results
+      id: evaluate
+      shell: pwsh
+      run: |
+        $identity = Get-Content identity.json | ConvertFrom-Json
+        $devices  = Get-Content devices.json | ConvertFrom-Json
+
+        $alerts = @()
+
+        # Identity alerts
+        if ($identity.RiskyUsers.Count -gt 0) {
+          $alerts += "⚠️ Risky users detected: $($identity.RiskyUsers.Count)"
+        }
+
+        if ($identity.RiskySignIns.Count -gt 0) {
+          $alerts += "⚠️ Risky sign-ins detected: $($identity.RiskySignIns.Count)"
+        }
+
+        if ($identity.BreakGlassAccounts.Count -gt 0) {
+          foreach ($acct in $identity.BreakGlassAccounts) {
+            if ($acct.signInActivity.lastSignInDateTime) {
+              $alerts += "🚨 Break-glass account sign-in detected: $($acct.userPrincipalName)"
+            }
+          }
+        }
+
+        # Device alerts
+        if ($devices.ExposureScore.exposureScore -gt 50) {
+          $alerts += "🚨 High exposure score: $($devices.ExposureScore.exposureScore)"
+        }
+
+        $offline = $devices.Devices | Where-Object { $_.lastSeen -lt (Get-Date).AddDays(-7) }
+        if ($offline.Count -gt 0) {
+          $alerts += "⚠️ Devices not reporting for 7+ days: $($offline.Count)"
+        }
+
+        $vulns = $devices.Vulnerabilities | Where-Object { $_.severity -eq "High" }
+        if ($vulns.Count -gt 0) {
+          $alerts += "🚨 High severity vulnerabilities: $($vulns.Count)"
+        }
+
+        if ($alerts.Count -eq 0) {
+          echo "alert_text=" >> $env:GITHUB_OUTPUT
+          exit 0
+        }
+
+        $alertText = $alerts -join "`n"
+        echo "alert_text=$alertText" >> $env:GITHUB_OUTPUT
+
+    - name: Send Teams Alert
+      if: steps.evaluate.outputs.alert_text != ''
+      shell: pwsh
+      run: |
+        ./scripts/Send-TeamsAlert.ps1 `
+          -WebhookUrl "${{ secrets.TEAMS_WEBHOOK }}" `
+          -Title "Tenant Health Alert" `
+          -Message "${{ steps.evaluate.outputs.alert_text }}" `
+          -Severity "Warning"
+
+    - name: Publish Dashboard Data
+      shell: pwsh
+      run: |
+        Copy-Item identity.json dashboard/identity.json -Force
+        Copy-Item devices.json dashboard/devices.json -Force
+
+    - name: Commit Dashboard Updates
+      shell: pwsh
+      run: |
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+        git add dashboard/identity.json
+        git add dashboard/devices.json
+        git commit -m "Update dashboard data"
+        git push
